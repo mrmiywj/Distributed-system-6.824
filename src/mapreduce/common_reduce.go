@@ -1,5 +1,13 @@
 package mapreduce
 
+import (
+	"log"
+	"os"
+	"bytes"
+	"sort"
+	"encoding/json"
+)
+
 // doReduce does the job of a reduce worker: it reads the intermediate
 // key/value pairs (produced by the map phase) for this task, sorts the
 // intermediate key/value pairs by key, calls the user-defined reduce function
@@ -31,27 +39,43 @@ func doReduce(
 	// 	enc.Encode(KeyValue{key, reduceF(...)})
 	// }
 	// file.Close()
-	f, err := os.Open(reduceName(jobName, nMap, reduceTaskNumber))
-	if err != nil {
-		Log.Fatal("DoReduce", err)
-	}
-	fileInfo, err := f.Stat()
-	if err != nil {
-		Log.Fatal("DoReduce", err)
-	}
-	size := fileInfo.Size()
-	content := make([]byte, size)
-	n, err := f.Read(content)
-	if err != nil {
-		Log.Fatal("DoReduce", err)
-	}
-	enc := json.NewDecoder(f)
-	for {
-		var kv KeyValue
-		errr := enc.Decode(&kv)
-		if err != nil {
-			break
+	var buf bytes.Buffer
+	Log := log.New(&buf, "Log:", log.Lshortfile)
+	kvs := make(map[string][]string)
+	for i := 0; i < nMap ; i++{
+		name := reduceName(jobName, i, reduceTaskNumber)
+		file, err := os.Open(name)
+		if err != nil{
+			Log.Fatal("DoReduce", err)
 		}
-
+		enc := json.NewDecoder(file)
+		var kv KeyValue
+		for{
+			err = enc.Decode(&kv)
+			if err !=  nil{
+				break
+			}
+			_ , exist := kvs[kv.Key]
+			if !exist {
+				kvs[kv.Key] = make([]string,0)
+			}
+			kvs[kv.Key] = append(kvs[kv.Key], kv.Value)
+		}
+		file.Close()
 	}
+	var keys []string
+	for k := range kvs{
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	p := mergeName(jobName, reduceTaskNumber)
+	file, err := os.Create(p)
+	if err != nil{
+		Log.Fatal("DoReduce:", err)
+	}
+	enc := json.NewEncoder(file)
+	for _, k := range keys {
+		enc.Encode(KeyValue{k, reduceF(k,kvs[k])})
+	}
+	file.Close()
 }
