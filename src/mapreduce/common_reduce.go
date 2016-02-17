@@ -31,4 +31,27 @@ func doReduce(
 	// 	enc.Encode(KeyValue{key, reduceF(...)})
 	// }
 	// file.Close()
+	f, err := os.Open(reduceName(jobName, nMap, reduceTaskNumber))
+	if err != nil {
+		Log.Fatal("DoReduce", err)
+	}
+	fileInfo, err := f.Stat()
+	if err != nil {
+		Log.Fatal("DoReduce", err)
+	}
+	size := fileInfo.Size()
+	content := make([]byte, size)
+	n, err := f.Read(content)
+	if err != nil {
+		Log.Fatal("DoReduce", err)
+	}
+	enc := json.NewDecoder(f)
+	for {
+		var kv KeyValue
+		errr := enc.Decode(&kv)
+		if err != nil {
+			break
+		}
+
+	}
 }

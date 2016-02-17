@@ -40,6 +40,45 @@ func doMap(
 	//     err := enc.Encode(&kv)
 	//
 	// Remember to close the file after you have written all the values!
+
+	f, err := os.Open(inFile)
+	if err != nil {
+		Log.Fatal("doMap:", err)
+	}
+	fileInfo, err := f.Stat()
+	if err != nil {
+		Log.Fatal("doMap", err)
+	}
+	len = fileInfo.Size()
+	content := make([]byte, len)
+	_, err := f.Read(content)
+	if err != nil {
+		Log.Fatal("doMap", err)
+	}
+	err := f.Close()
+	if err != nil {
+		Log.Fatal("doMap", err)
+	}
+	res := mapF(inFile, string(b))
+
+	for r := 0; r < nReduce; r++ {
+		n := reduceName(jobName, mapTaskNumber, r)
+		f, err := os.Create(n)
+		if err != nil {
+			Log.Fatal("doMap", err)
+		}
+		enc := json.NewEncoder(f)
+		for _, kv := range res {
+			if ihash(kv.Key)%uint32(nReduce) == uint32(r) {
+				err := enc.Encode(&kv)
+				if err != nil {
+					Log.Fatal("doMap", err)
+				}
+			}
+		}
+		f.Close()
+	}
+
 }
 
 func ihash(s string) uint32 {
