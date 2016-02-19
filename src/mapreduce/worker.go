@@ -68,6 +68,7 @@ func RunWorker(MasterAddress string, me string,
 	nRPC int,
 ) {
 	debug("RunWorker %s\n", me)
+	fmt.Printf("RunWorker %s\n", me)
 	wk := new(Worker)
 	wk.name = me
 	wk.Map = MapFunc

@@ -1,0 +1,6 @@
+=== RUN   TestBasic
+/var/tmp/824-501/mr67224-master: Starting Map/Reduce task test
+Schedule: 100 Map tasks (50 I/Os)
+Schedule: Map phase done
+Got a worker in Map!Got a worker in Map!rpc: service/method request ill-formed: DoTask
+rpc: service/method request ill-formed: DoTask
