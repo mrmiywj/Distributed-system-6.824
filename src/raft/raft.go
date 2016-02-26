@@ -20,8 +20,8 @@ package raft
 import "sync"
 import "labrpc"
 
-// import "bytes"
-// import "encoding/gob"
+import "bytes"
+import "encoding/gob"
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -74,7 +74,7 @@ func (rf *Raft) GetState() (int, bool) {
 	var isleader bool
 	// Your code here.
 	term = rf.currentTerm
-	isleader = (me == leader)
+	isleader = (rf.me == rf.leader)
 	return term, isleader
 }
 
@@ -110,6 +110,10 @@ func (rf *Raft) readPersist(data []byte) {
 	// d := gob.NewDecoder(r)
 	// d.Decode(&rf.xxx)
 	// d.Decode(&rf.yyy)
+	r := bytes.NewBuffer(data)
+	d := gob.NewDecoder(r)
+	d.Decode(&rf.lastApplied)
+	d.Decode(&rf.commitIndex)
 }
 
 //
@@ -117,6 +121,10 @@ func (rf *Raft) readPersist(data []byte) {
 //
 type RequestVoteArgs struct {
 	// Your data here.
+	term         int
+	candidateId  int
+	lastLogIndex int
+	lastLogTerm  int
 }
 
 //
@@ -124,6 +132,8 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here.
+	term        int
+	voteGranted bool
 }
 
 //
@@ -131,6 +141,28 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here.
+	reply = new(RequestVoteReply)
+	if args.term < rf.currentTerm {
+		reply.term = rf.currentTerm
+		reply.voteGranted = false
+		return
+	}
+	if rf.votedFor == nil || args.candidateId == rf.votedFor.me {
+		if args.lastLogTerm > rf.log[rf.lastApplied].term {
+			reply.term = rf.currentTerm
+			reply.voteGranted = true
+			return
+		} else {
+			if args.lastLogTerm == rf.log[rf.lastApplied].term && args.lastLogIndex > rf.lastApplied {
+				reply.term = rf.currentTerm
+				reply.voteGranted = true
+				return
+			}
+		}
+	}
+	reply.term = rf.currentTerm
+	reply.voteGranted = false
+	return
 }
 
 //
