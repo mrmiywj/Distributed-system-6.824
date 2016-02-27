@@ -112,8 +112,8 @@ func (rf *Raft) readPersist(data []byte) {
 	// d.Decode(&rf.yyy)
 	r := bytes.NewBuffer(data)
 	d := gob.NewDecoder(r)
-	d.Decode(&rf.lastApplied)
 	d.Decode(&rf.commitIndex)
+	d.Decode(&rf.lastApplied)
 }
 
 //
