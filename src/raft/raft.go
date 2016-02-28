@@ -19,6 +19,8 @@ package raft
 
 import "sync"
 import "labrpc"
+import "time"
+import "math/rand"
 
 import "bytes"
 import "encoding/gob"
@@ -56,14 +58,18 @@ type Raft struct {
 	// Your data here.
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-	leader      int
-	currentTerm int
-	votedFor    *Raft
-	log         []Log
-	commitIndex int
-	lastApplied int
-	matchIndex  []int
-	nextIndex   []int
+	leader           int
+	currentTerm      int
+	votedFor         int
+	log              []Log
+	commitIndex      int
+	lastApplied      int
+	matchIndex       []int
+	nextIndex        []int
+	isLeader         bool
+	isCandidate      bool
+	isFollower       bool
+	timerForElection *time.Timer
 }
 
 // return currentTerm and whether this server
@@ -121,10 +127,10 @@ func (rf *Raft) readPersist(data []byte) {
 //
 type RequestVoteArgs struct {
 	// Your data here.
-	term         int
-	candidateId  int
-	lastLogIndex int
-	lastLogTerm  int
+	Term         int
+	CandidateId  int
+	LastLogIndex int
+	LastLogTerm  int
 }
 
 //
@@ -132,8 +138,8 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here.
-	term        int
-	voteGranted bool
+	Term        int
+	VoteGranted bool
 }
 
 //
@@ -142,26 +148,35 @@ type RequestVoteReply struct {
 func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here.
 	reply = new(RequestVoteReply)
-	if args.term < rf.currentTerm {
-		reply.term = rf.currentTerm
-		reply.voteGranted = false
+	if args.Term < rf.currentTerm {
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = false
 		return
 	}
-	if rf.votedFor == nil || args.candidateId == rf.votedFor.me {
-		if args.lastLogTerm > rf.log[rf.lastApplied].term {
-			reply.term = rf.currentTerm
-			reply.voteGranted = true
+	if rf.isCandidate || rf.isLeader {
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = false
+	}
+	if rf.votedFor == -1 || args.CandidateId == rf.votedFor {
+		if rf.lastApplied == 0 {
+			reply.Term = rf.currentTerm
+			reply.VoteGranted = true
+			return
+		}
+		if args.LastLogTerm > rf.log[rf.lastApplied].term {
+			reply.Term = rf.currentTerm
+			reply.VoteGranted = true
 			return
 		} else {
-			if args.lastLogTerm == rf.log[rf.lastApplied].term && args.lastLogIndex > rf.lastApplied {
-				reply.term = rf.currentTerm
-				reply.voteGranted = true
+			if args.LastLogTerm == rf.log[rf.lastApplied].term && args.LastLogIndex > rf.lastApplied {
+				reply.Term = rf.currentTerm
+				reply.VoteGranted = true
 				return
 			}
 		}
 	}
-	reply.term = rf.currentTerm
-	reply.voteGranted = false
+	reply.Term = rf.currentTerm
+	reply.VoteGranted = false
 	return
 }
 
@@ -177,6 +192,51 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 func (rf *Raft) sendRequestVote(server int, args RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
+}
+
+//
+//Struct for appendEntries RPC
+//
+type AppendEntriesArgs struct {
+	term         int
+	leaderId     int
+	prevLogIndex int
+	prevLogTerm  int
+	entries      []Log
+	leaderCommit int
+}
+
+//
+//Struct for appendEnries reply
+//
+type AppendEntriesReply struct {
+	term    int
+	success bool
+}
+
+func (rf *Raft) appendEntries(args AppendEntriesArgs, rep *AppendEntriesReply) {
+	if len(args.entries) == 0 {
+		if rf.isFollower {
+			rf.currentTerm = args.term
+			rf.votedFor = args.leaderId
+			rep.success = true
+			return
+		}
+		if args.term < rf.currentTerm {
+			rep.term = rf.currentTerm
+			rep.success = false
+			return
+		}
+		rf.isCandidate = false
+		rf.isLeader = false
+		rf.isFollower = true
+		rf.currentTerm = args.term
+		rf.leader = args.leaderId
+		rep.term = rf.currentTerm
+		rep.success = true
+		return
+	}
+	return
 }
 
 //
@@ -227,6 +287,61 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// Your initialization code here.
 
+	//go func() {
+	//	t := rand.Intn(150) + 150
+	//	selectCh <- time.After(time.Duration(t) * time.Millisecond)
+	//}()
+	rf.votedFor = -1
+	rf.isLeader = false
+	rf.isCandidate = false
+	rf.isFollower = true
+	rf.lastApplied = 0
+	rf.commitIndex = 0
+	t := rand.Intn(150) + 150
+	rf.timerForElection = time.NewTimer(time.Duration(t))
+	go func(t *time.Timer, d time.Duration) {
+		for {
+			select {
+			case <-t.C:
+				tmpTime := rand.Intn(150) + 150
+				t.Reset(time.Duration(tmpTime))
+				if rf.isCandidate || rf.isFollower {
+					//be Candidate, run election
+					rf.isCandidate = true
+					rf.isFollower = false
+					rf.isLeader = false
+					rf.currentTerm++
+					count := 0
+					for i := 0; i < len(rf.peers); i++ {
+						if i != rf.me {
+							args := RequestVoteArgs{rf.currentTerm, i, rf.commitIndex, rf.lastApplied}
+							rep := &RequestVoteReply{}
+							rf.sendRequestVote(me, args, rep)
+							if rep.VoteGranted {
+								count++
+							}
+							if rep.Term > rf.currentTerm {
+								rf.currentTerm = rep.Term
+							}
+						}
+					}
+					if count >= len(rf.peers)/2 {
+						rf.leader = rf.me
+						rf.isLeader = true
+						rf.isFollower = false
+						rf.isCandidate = false
+					} else {
+						rf.isFollower = true
+						rf.isCandidate = false
+					}
+				}
+
+			}
+		}
+	}(rf.timerForElection, time.Duration(t))
+	go func() {
+
+	}()
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
