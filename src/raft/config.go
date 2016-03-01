@@ -289,6 +289,7 @@ func (cfg *config) checkTerms() int {
 			if term == -1 {
 				term = xterm
 			} else if term != xterm {
+				fmt.Printf("%d term is %d, xterm is %d", i, term, xterm)
 				cfg.t.Fatalf("servers disagree on term")
 			}
 		}
